@@ -36,6 +36,35 @@ def generate_projects(filename, project_details):
     tf.close()
     return "{}.{}".format(tftype, tfname)
 
+def generate_variablegroup(filename, variablegroup_details, project_id):
+    tftype = "azuredevops_variable_group"
+    tfname = variablegroup_details.name.replace(".", "-").replace(" ", "-")
+    tf = open(filename, 'a+')
+    tf.write('resource "' + tftype + '" "' + tfname + '" {\n')
+    tf.write('\t project_id = ' + project_id + '\n')
+    tf.write('\t name = "' + variablegroup_details.name + '"\n')
+    if variablegroup_details.description is not None:
+        tf.write('\t description = "' + variablegroup_details.description + '"\n')
+    print(type(variablegroup_details.variables))
+    for key,val in variablegroup_details.variables.items():
+        
+        tf.write('variable {\n')
+        tf.write('\t name = "' + key + '"\n')
+        if val.value is not None:
+            tf.write('\t value = "' + val.value + '"\n')
+        else:
+            tf.write('\t value = ""\n')
+        
+        if val.is_secret == True:
+            tf.write('\t is_secret = true\n')
+        tf.write('}\n')
+   
+    #tf.write('\t version_control = "' + project_details.capabilities['versioncontrol']['sourceControlType'] + '"\n')
+    #tf.write('\t work_item_template = "' + project_details.capabilities['processTemplate']['templateName'] + '"\n')
+    tf.write('}\n')
+    tf.close()
+    return "{}.{}".format(tftype, tfname)
+
 
 def generate_import_command(tfname, id):
     cmdline = 'terraform import {} "{}" \n'.format(tfname, id)
@@ -92,7 +121,7 @@ if __name__ == "__main__":
     # Get a client (the "core" client provides access to projects, teams, etc)
     core_client = connection.clients_v5_1.get_core_client()
     taskagent_client = connection.clients_v5_1.get_task_agent_client()
-    taskagent_client.get_variable_groups("Test project")
+    #taskagent_client.get_variable_groups("Test project")
     
 
     # Get the first page of projects
@@ -129,17 +158,25 @@ if __name__ == "__main__":
                 get_projects_response = None
 
         else:  # Single Project
-            print(taskagent_client.get_variable_groups(get_projects_response.id))
+            
 
             get_details_response = core_client.get_project(get_projects_response.id, include_capabilities=True)
 
             terraformfile = getfilename(get_details_response.name)
 
-            terraform_resource = generate_projects(terraformfile, get_details_response)
+            tf_project = generate_projects(terraformfile, get_details_response)
 
-            generate_import_command(terraform_resource, get_details_response.id)
+          
+
+            generate_import_command(tf_project, get_details_response.id)
+
+            variableGroup = taskagent_client.get_variable_groups(get_projects_response.id)
+            for vg in variableGroup:
+                tf_vg = generate_variablegroup(terraformfile,vg, "{}.id".format(tf_project))
+                generate_import_command(tf_vg, "{}/{}".format(get_details_response.id,vg.id))
 
 
+    terraform.terraform_fmt(dir)
 
     terraform.terraform_init(dir)
 
